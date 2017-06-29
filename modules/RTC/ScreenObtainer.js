@@ -68,6 +68,14 @@ const CHROME_USER_GESTURE_REQ_ERROR
  * Handles obtaining a stream from a screen capture on different browsers.
  */
 const ScreenObtainer = {
+    /**
+     * If not <tt>null</tt> it means that the initialization process is still in
+     * progress. It is used to make desktop stream request wait and continue
+     * after it's done.
+     * {@type Promise|null}
+     */
+    intChromeExtPromise: null,
+
     obtainStream: null,
 
     /**
@@ -173,7 +181,10 @@ const ScreenObtainer = {
                 obtainDesktopStream
                     = this.obtainScreenFromExtension;
                 logger.info('Using Chrome extension for desktop sharing');
-                initChromeExtension(options);
+                this.intChromeExtPromise
+                    = initChromeExtension(options).then(() => {
+                        this.intChromeExtPromise = null;
+                    });
             } else {
                 logger.info('Chrome extension not supported until ver 34');
             }
@@ -269,6 +280,15 @@ const ScreenObtainer = {
      * 'desktop' stream for returned stream token.
      */
     obtainScreenFromExtension(options, streamCallback, failCallback) {
+        if (this.intChromeExtPromise !== null) {
+            this.intChromeExtPromise.then(() => {
+                this.obtainScreenFromExtension(
+                    options, streamCallback, failCallback);
+            });
+
+            return;
+        }
+
         if (chromeExtInstalled) {
             doGetStreamFromExtension(this.options, streamCallback,
                 failCallback);
@@ -525,19 +545,25 @@ function initInlineInstalls(options) {
 /**
  *
  * @param options
+ *
+ * @return {Promise} - a Promise resolved once the initialization process is
+ * finished.
  */
 function initChromeExtension(options) {
     // Initialize Chrome extension inline installs
     initInlineInstalls(options);
 
-    // Check if extension is installed
-    checkChromeExtInstalled((installed, updateRequired) => {
-        chromeExtInstalled = installed;
-        chromeExtUpdateRequired = updateRequired;
-        logger.info(
-            `Chrome extension installed: ${chromeExtInstalled
-                } updateRequired: ${chromeExtUpdateRequired}`);
-    }, options);
+    return new Promise(resolve => {
+        // Check if extension is installed
+        checkChromeExtInstalled((installed, updateRequired) => {
+            chromeExtInstalled = installed;
+            chromeExtUpdateRequired = updateRequired;
+            logger.info(
+                `Chrome extension installed: ${chromeExtInstalled
+                    } updateRequired: ${chromeExtUpdateRequired}`);
+            resolve();
+        }, options);
+    });
 }
 
 /**
